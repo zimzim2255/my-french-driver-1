@@ -1,0 +1,168 @@
+/* Luxury scroll-reveal animations applied globally */
+:root {
+  --lux-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --lux-duration: 420ms;
+  --lux-translate: 14px;
+  --lux-blur: 2px;
+}
+
+/* Initial state for revealable elements */
+.lux-reveal {
+  opacity: 0;
+  transform: translateY(var(--lux-translate)) scale(0.98);
+  filter: blur(var(--lux-blur));
+    will-change: transform, opacity, filter;
+  transition:
+    opacity var(--lux-duration) var(--lux-ease) var(--reveal-delay, 0ms),
+    transform var(--lux-duration) var(--lux-ease) var(--reveal-delay, 0ms),
+    filter var(--lux-duration) var(--lux-ease) var(--reveal-delay, 0ms),
+    box-shadow var(--lux-duration) var(--lux-ease) var(--reveal-delay, 0ms);
+}
+
+/* Visible state once scrolled into view */
+.lux-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+  }
+
+/* Optional subtle elevation when revealed (uses Tailwind's primary if present) */
+.lux-reveal.lux-elevate.is-visible {
+  box-shadow: 0 10px 20px -12px color-mix(in oklab, var(--primary, #8b5cf6) 18%, transparent);
+}
+
+/* Smooth splash: appear → continuous zoom → disappear */
+@keyframes splash-sequence {
+  /* Logo appears and stays visible */
+  0% {
+    transform: scale(1);
+    opacity: 0;
+    filter: blur(0px);
+  }
+  15% {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+  25% {
+    transform: scale(1);
+    opacity: 1;
+    filter: blur(0px);
+  }
+  
+  /* Continuous smooth zoom and disappear - no stops */
+  100% {
+    transform: scale(6);
+    opacity: 0;
+    filter: blur(8px);
+  }
+}
+
+.animate-splash-zoom {
+  animation: splash-sequence 2.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Photo Gallery Animations */
+@keyframes slide-down {
+  0% {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes glow-pulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(255, 215, 0, 0.4), 0 0 10px rgba(255, 193, 7, 0.3), 0 0 15px rgba(255, 165, 0, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.6), 0 0 20px rgba(255, 193, 7, 0.5), 0 0 30px rgba(255, 165, 0, 0.4);
+  }
+}
+
+@keyframes glow-on-swipe {
+  0% {
+    box-shadow: none;
+    transform: translateY(0);
+  }
+  50% {
+    box-shadow: 0 0 20px rgba(255, 215, 0, 0.5), 0 0 40px rgba(255, 193, 7, 0.4), 0 0 60px rgba(255, 165, 0, 0.3);
+    transform: translateY(-2px);
+  }
+  100% {
+    box-shadow: 0 0 15px rgba(255, 215, 0, 0.4), 0 0 30px rgba(255, 193, 7, 0.3), 0 0 45px rgba(255, 165, 0, 0.2);
+    transform: translateY(-1px);
+  }
+}
+
+.animate-slide-down {
+  animation: slide-down 0.6s ease-out forwards;
+  animation-delay: calc(var(--slide-index, 0) * 0.1s);
+}
+
+.animate-glow-on-swipe {
+  transition: all 0.5s ease-out;
+}
+
+.animate-glow-on-swipe:hover {
+  animation: glow-on-swipe 0.8s ease-out forwards;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
+
+/* Swiper slide entrance animation */
+.swiper-slide {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.6s ease-out, transform 0.6s ease-out;
+}
+
+.swiper-slide-active,
+.swiper-slide-next,
+.swiper-slide-prev {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Enhanced glow effect for cards */
+.group:hover .animate-glow-pulse {
+  animation: glow-pulse 1.5s ease-in-out infinite;
+}
+
+/* Respect reduced motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .lux-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    transition: none !important;
+  }
+  
+  .animate-splash-zoom {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  
+  .animate-slide-down {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+  
+  .animate-glow-on-swipe,
+  .animate-glow-pulse {
+    animation: none !important;
+    box-shadow: none !important;
+  }
+  
+  .swiper-slide {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
