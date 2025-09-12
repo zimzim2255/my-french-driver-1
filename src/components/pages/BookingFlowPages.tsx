@@ -18,6 +18,16 @@ export interface PlaceSuggestion {
   lon: string;
   class?: string;
   type?: string;
+  address?: {
+    city?: string;
+    town?: string;
+    municipality?: string;
+    county?: string;
+    state?: string;
+    postcode?: string;
+    country_code?: string;
+    [key: string]: any;
+  };
 }
 
 export interface Location {
@@ -27,6 +37,7 @@ export interface Location {
 }
 
 export type TravelType = "none" | "flight" | "train";
+export type BookingMode = "transfer" | "daily";
 
 export interface Itinerary {
   pickup: Location;
@@ -36,6 +47,8 @@ export interface Itinerary {
   pickupTime: string; // HH:mm
   passengers: number;
   travelType: TravelType;
+  bookingMode?: BookingMode;
+  dailyHours?: number;
   flightNumber?: string;
   trainNumber?: string;
   terminal?: string;
@@ -170,6 +183,23 @@ const SERVICE_TYPES = [
   { id: "other", name: "Other Services", description: "Custom transportation solutions" }
 ];
 
+// Predefined Paris airports and train stations
+const PARIS_AIRPORTS: PlaceSuggestion[] = [
+  { place_id: 10001, display_name: "Paris Charles de Gaulle Airport (CDG)", lat: "49.0097", lon: "2.5479", class: "aeroway", type: "aerodrome" },
+  { place_id: 10002, display_name: "Paris Orly Airport (ORY)", lat: "48.7262", lon: "2.3652", class: "aeroway", type: "aerodrome" },
+  { place_id: 10003, display_name: "Le Bourget Airport (LBG)", lat: "48.9692", lon: "2.4419", class: "aeroway", type: "aerodrome" },
+];
+
+const PARIS_TRAIN_STATIONS: PlaceSuggestion[] = [
+  { place_id: 11001, display_name: "Gare du Nord", lat: "48.8809", lon: "2.3553", class: "railway", type: "station" },
+  { place_id: 11002, display_name: "Gare de l'Est", lat: "48.8761", lon: "2.3593", class: "railway", type: "station" },
+  { place_id: 11003, display_name: "Gare de Lyon", lat: "48.8443", lon: "2.3746", class: "railway", type: "station" },
+  { place_id: 11004, display_name: "Gare Montparnasse", lat: "48.8397", lon: "2.3200", class: "railway", type: "station" },
+  { place_id: 11005, display_name: "Gare Saint-Lazare", lat: "48.8756", lon: "2.3266", class: "railway", type: "station" },
+  { place_id: 11006, display_name: "Gare d'Austerlitz", lat: "48.8422", lon: "2.3652", class: "railway", type: "station" },
+  { place_id: 11007, display_name: "Paris Bercy (Gare de Bercy)", lat: "48.8406", lon: "2.3809", class: "railway", type: "station" },
+];
+
 // -------------------- Step 1: Booking Driver --------------------
 export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) => void }) {
   const [pickup, setPickup] = useState<Location>({ text: "" });
@@ -179,6 +209,8 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
   const [pickupTime, setPickupTime] = useState("");
   const [passengers, setPassengers] = useState<number>(1);
   const [travelType, setTravelType] = useState<TravelType>("none");
+  const [bookingMode, setBookingMode] = useState<BookingMode>('transfer');
+  const [dailyHours, setDailyHours] = useState<number>(1);
   const [flightNumber, setFlightNumber] = useState("");
   const [trainNumber, setTrainNumber] = useState("");
   const [terminal, setTerminal] = useState("");
@@ -199,6 +231,8 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
       setPickupTime(it.pickupTime || "");
       setPassengers(it.passengers || 1);
       setTravelType(it.travelType || "none");
+      setBookingMode(it.bookingMode || 'transfer');
+      setDailyHours(it.dailyHours || 1);
       setFlightNumber(it.flightNumber || "");
       setTrainNumber(it.trainNumber || "");
       setTerminal(it.terminal || "");
@@ -214,18 +248,30 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
       return;
     }
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(value)}&limit=5`
-      );
+      const params = new URLSearchParams({
+        format: 'json',
+        q: value,
+        limit: '5',
+        addressdetails: '1',
+        countrycodes: 'fr',
+        // Paris bounding box: left,top,right,bottom (lon,lat,lon,lat)
+        viewbox: '2.224122,48.902144,2.469760,48.815575',
+        bounded: '1',
+        dedupe: '1',
+      });
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`);
       const data: PlaceSuggestion[] = await response.json();
-      const filtered = data.filter(
-        (item) =>
+      const filtered = data.filter((item) => {
+        const inParis = !!(
+          (item.address?.city && item.address.city.toLowerCase() === 'paris') ||
+          (item.address?.county && item.address.county.toLowerCase() === 'paris')
+        );
+        const typeMatch = !!(
           item.display_name &&
-          (item.class === "place" ||
-            item.type === "city" ||
-            item.type === "administrative" ||
-            item.class === "highway")
-      );
+          (item.class === 'place' || item.type === 'city' || item.type === 'administrative' || item.class === 'highway')
+        );
+        return inParis && typeMatch;
+      });
       setSuggestions(filtered);
       setActiveField(fieldKey);
     } catch (e) {
@@ -247,16 +293,32 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
 
     setSuggestions([]);
     setActiveField(null);
-  };
-
-  const canContinue = useMemo(() => {
-    if (!pickup.text || !dropoff.text) return false;
+    };
+    
+    const showAirports = (fieldKey: string) => {
+    setSuggestions(PARIS_AIRPORTS);
+    setActiveField(fieldKey);
+    };
+    
+    const showStations = (fieldKey: string) => {
+    setSuggestions(PARIS_TRAIN_STATIONS);
+    setActiveField(fieldKey);
+    };
+    
+    const canContinue = useMemo(() => {
     if (!pickupDate || !pickupTime) return false;
     if (passengers < 1 || passengers > 7) return false;
-    if (travelType === "flight" && !flightNumber.trim()) return false;
-    if (travelType === "train" && !trainNumber.trim()) return false;
+
+    if (bookingMode === 'daily') {
+      if (!pickup.text) return false;
+      if (!dailyHours || dailyHours < 1) return false;
+      return true;
+    }
+
+    // transfer mode
+    if (!pickup.text || !dropoff.text) return false;
     return true;
-  }, [pickup, dropoff, pickupDate, pickupTime, passengers, travelType, flightNumber, trainNumber]);
+  }, [pickup, dropoff, pickupDate, pickupTime, passengers, bookingMode, dailyHours]);
 
   const handleContinue = () => {
     if (!canContinue) return;
@@ -269,6 +331,8 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
       pickupTime,
       passengers,
       travelType,
+      bookingMode,
+      dailyHours: bookingMode === 'daily' ? dailyHours : undefined,
       flightNumber: travelType === "flight" ? flightNumber.trim() : undefined,
       trainNumber: travelType === "train" ? trainNumber.trim() : undefined,
       terminal: terminal.trim() || undefined,
@@ -309,11 +373,46 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
         <div className="container mx-auto px-4 grid lg:grid-cols-3 gap-8 items-start">
           <Card className="bg-white/95 backdrop-blur-sm shadow-xl lg:col-span-2">
             <CardContent className="p-6 md:p-8">
-              <h3 className="text-xl font-semibold mb-6">Itinerary</h3>
+              {/* Transfer vs Daily Rate Tabs */}
+              <div className="mb-6">
+                <div className="flex gap-3" role="tablist" aria-label="Pricing mode">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={bookingMode === 'transfer'}
+                    className="px-6 py-3 text-sm font-semibold rounded-lg shadow-sm transition-transform duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                    onClick={() => setBookingMode('transfer')}
+                    style={bookingMode === 'transfer' 
+                      ? { background: 'linear-gradient(90deg,#D4AF37,#B8860B)', color: '#fff' }
+                      : { backgroundColor: '#F3F4F6', color: '#374151' }}
+                  >
+                    Transfer
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={bookingMode === 'daily'}
+                    className="px-6 py-3 text-sm font-semibold rounded-lg shadow-sm transition-transform duration-200 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+                    onClick={() => setBookingMode('daily')}
+                    style={bookingMode === 'daily' 
+                      ? { background: 'linear-gradient(90deg,#D4AF37,#B8860B)', color: '#fff' }
+                      : { backgroundColor: '#F3F4F6', color: '#374151' }}
+                  >
+                    Daily Rate
+                  </button>
+                </div>
+              </div>
+
+              <h3 className="text-lg font-medium mb-6 text-gray-700">Itinerary</h3>
 
               {/* Pickup */}
-              <div className="relative mb-5">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Origin</label>
+              <div className="relative mb-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-6 h-6 bg-black text-white rounded-sm flex items-center justify-center text-sm font-bold">
+                    A
+                  </div>
+                  <span className="text-sm text-gray-600">Pick-up address</span>
+                </div>
                 <div className="relative">
                   <Input
                     placeholder="Pick-up address"
@@ -324,11 +423,29 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
                       fetchSuggestions(v, "pickup");
                     }}
                     onBlur={() => setTimeout(() => setSuggestions([]), 150)}
-                    className="pr-20"
+                    className="pr-20 h-12 text-gray-600"
                   />
-                  <div className="absolute right-1 inset-y-0 flex items-center gap-1 pr-1">
-                    <Button type="button" variant="ghost" size="icon" aria-label="Flight"><Plane className="w-4 h-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" aria-label="Train"><Train className="w-4 h-4" /></Button>
+                  <div className="absolute right-2 inset-y-0 flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Flight"
+                      onMouseDown={(e) => { e.preventDefault(); showAirports('pickup'); }}
+                      className="h-8 w-8"
+                    >
+                      <Plane className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Train"
+                      onMouseDown={(e) => { e.preventDefault(); showStations('pickup'); }}
+                      className="h-8 w-8"
+                    >
+                      <Train className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
                 {suggestions.length > 0 && activeField === "pickup" && (
@@ -343,8 +460,14 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
               </div>
 
               {/* Dropoff */}
-              <div className="relative mb-5">
-                <label className="block text-xs font-medium text-gray-700 mb-1">Destination</label>
+              {bookingMode === 'transfer' && (
+              <div className="relative mb-4">
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="w-6 h-6 bg-black text-white rounded-sm flex items-center justify-center text-sm font-bold">
+                    B
+                  </div>
+                  <span className="text-sm text-gray-600">Drop-off address</span>
+                </div>
                 <div className="relative">
                   <Input
                     placeholder="Drop-off address"
@@ -355,11 +478,29 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
                       fetchSuggestions(v, "dropoff");
                     }}
                     onBlur={() => setTimeout(() => setSuggestions([]), 150)}
-                    className="pr-20"
+                    className="pr-20 h-12 text-gray-600"
                   />
-                  <div className="absolute right-1 inset-y-0 flex items-center gap-1 pr-1">
-                    <Button type="button" variant="ghost" size="icon" aria-label="Flight"><Plane className="w-4 h-4" /></Button>
-                    <Button type="button" variant="ghost" size="icon" aria-label="Train"><Train className="w-4 h-4" /></Button>
+                  <div className="absolute right-2 inset-y-0 flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Flight"
+                      onMouseDown={(e) => { e.preventDefault(); showAirports('dropoff'); }}
+                      className="h-8 w-8"
+                    >
+                      <Plane className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Train"
+                      onMouseDown={(e) => { e.preventDefault(); showStations('dropoff'); }}
+                      className="h-8 w-8"
+                    >
+                      <Train className="w-4 h-4" />
+                    </Button>
                   </div>
                 </div>
                 {suggestions.length > 0 && activeField === "dropoff" && (
@@ -372,24 +513,31 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
                   </ul>
                 )}
               </div>
+              )}
 
-              {/* Extra Stops */}
-              <div className="mb-5">
-                <div className="flex items-center justify-between mb-2">
-                  <label className="block text-xs font-medium text-gray-700">Extra Stops (Optional)</label>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setExtraStops([...extraStops, { text: "" }])}
-                    className="text-xs"
-                  >
-                    <Plus className="w-3 h-3 mr-1" />
-                    Add Stop
-                  </Button>
-                </div>
+              {/* Add a Step Button */}
+              {bookingMode === 'transfer' && (
+              <div className="mb-6">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setExtraStops([...extraStops, { text: "" }])}
+                  className="text-sm text-gray-600 border-gray-300"
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add a Step
+                </Button>
+                
+                {/* Extra Stops */}
                 {extraStops.map((stop, index) => (
-                  <div key={index} className="relative mb-3">
+                  <div key={index} className="relative mt-4">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-6 h-6 bg-gray-500 text-white rounded-sm flex items-center justify-center text-sm font-bold">
+                        {String.fromCharCode(67 + index)}
+                      </div>
+                      <span className="text-sm text-gray-600">Stop {index + 1} address</span>
+                    </div>
                     <div className="flex gap-2">
                       <div className="flex-1 relative">
                         <Input
@@ -403,6 +551,7 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
                             fetchSuggestions(v, `extrastop-${index}`);
                           }}
                           onBlur={() => setTimeout(() => setSuggestions([]), 150)}
+                          className="h-12 text-gray-600"
                         />
                         {suggestions.length > 0 && activeField === `extrastop-${index}` && (
                           <ul className="absolute z-20 w-full bg-white border border-gray-200 rounded-md shadow-md mt-1 max-h-60 overflow-auto">
@@ -437,105 +586,111 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
                           const newStops = extraStops.filter((_, i) => i !== index);
                           setExtraStops(newStops);
                         }}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 h-12 w-12"
                       >
                         <X className="w-4 h-4" />
                       </Button>
                     </div>
                   </div>
                 ))}
-                {extraStops.length > 0 && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Extra stops will be visited in the order listed between pickup and final destination.
-                  </p>
-                )}
               </div>
+              )}
 
               {/* Date/Time/Passengers */}
-              <div className="grid md:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Pick-up date</label>
-                  <div className="relative">
-                    <Input type="date" value={pickupDate} onChange={(e) => setPickupDate(e.target.value)} />
-                    <Clock className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+              {bookingMode === 'daily' ? (
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Pick-up date</label>
+                    <Input 
+                      type="date" 
+                      value={pickupDate} 
+                      onChange={(e) => setPickupDate(e.target.value)}
+                      placeholder="mm/dd/yyyy"
+                      className="h-12"
+                    />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Pick-up time</label>
-                  <div className="relative">
-                    <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} />
-                    <Clock className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Pick-up time</label>
+                    <Input 
+                      type="time" 
+                      value={pickupTime} 
+                      onChange={(e) => setPickupTime(e.target.value)}
+                      placeholder="--:-- --"
+                      className="h-12"
+                    />
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Passengers</label>
-                  <div className="relative">
-                    <select className="w-full px-3 py-2 border border-border rounded-md bg-background" value={passengers} onChange={(e) => setPassengers(parseInt(e.target.value, 10))}>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Duration</label>
+                    <select className="w-full px-3 py-2 h-12 border border-border rounded-md bg-background" value={dailyHours} onChange={(e) => setDailyHours(parseInt(e.target.value, 10))}>
+                      {Array.from({ length: 10 }).map((_, i) => (
+                        <option key={i + 1} value={i + 1}>{i + 1}h</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-700 mb-1">Passengers Count</label>
+                    <select className="w-full px-3 py-2 h-12 border border-border rounded-md bg-background" value={passengers} onChange={(e) => setPassengers(parseInt(e.target.value, 10))}>
                       {Array.from({ length: 7 }).map((_, i) => (
                         <option key={i + 1} value={i + 1}>
-                          {i + 1} {i + 1 === 1 ? "Passenger" : "Passengers"}
+                          {i + 1}
                         </option>
                       ))}
                     </select>
-                    <Users className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
                   </div>
                 </div>
-              </div>
-
-              {/* Travel type */}
-              <div className="grid md:grid-cols-3 gap-4 mt-4">
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Travel type</label>
-                  <select className="w-full px-3 py-2 border border-border rounded-md bg-background" value={travelType} onChange={(e) => setTravelType(e.target.value as TravelType)}>
-                    <option value="none">None</option>
-                    <option value="flight">Flight</option>
-                    <option value="train">Train</option>
-                  </select>
-                </div>
-                {travelType === "flight" && (
+              ) : (
+                <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm text-gray-700 mb-1">Flight number</label>
-                    <Input placeholder="e.g. AF123" value={flightNumber} onChange={(e) => setFlightNumber(e.target.value)} />
+                    <label className="block text-sm text-gray-700 mb-1">Pick-up date</label>
+                    <Input 
+                      type="date" 
+                      value={pickupDate} 
+                      onChange={(e) => setPickupDate(e.target.value)}
+                      placeholder="mm/dd/yyyy"
+                      className="h-12"
+                    />
                   </div>
-                )}
-                {travelType === "train" && (
                   <div>
-                    <label className="block text-sm text-gray-700 mb-1">Train number</label>
-                    <Input placeholder="e.g. TGV 6789" value={trainNumber} onChange={(e) => setTrainNumber(e.target.value)} />
+                    <label className="block text-sm text-gray-700 mb-1">Pick-up time</label>
+                    <Input 
+                      type="time" 
+                      value={pickupTime} 
+                      onChange={(e) => setPickupTime(e.target.value)}
+                      placeholder="--:-- --"
+                      className="h-12"
+                    />
                   </div>
-                )}
-                <div>
-                  <label className="block text-sm text-gray-700 mb-1">Terminal (optional)</label>
-                  <Input placeholder="e.g. Terminal 2E" value={terminal} onChange={(e) => setTerminal(e.target.value)} />
                 </div>
-              </div>
+              )}
 
-              {/* Service Type Selection */}
+              {/* Passengers Count */}
               <div className="mt-4">
-                <label className="block text-sm text-gray-700 mb-2">Service Type (Optional)</label>
-                <select 
-                  className="w-full px-3 py-2 border border-border rounded-md bg-background" 
-                  value={serviceType} 
-                  onChange={(e) => setServiceType(e.target.value)}
-                >
-                  <option value="">Select a service type</option>
-                  {SERVICE_TYPES.map((service) => (
-                    <option key={service.id} value={service.id}>
-                      {service.name}
+                <label className="block text-sm text-gray-700 mb-1">Passengers Count</label>
+                <select className="w-full px-3 py-2 h-12 border border-border rounded-md bg-background" value={passengers} onChange={(e) => setPassengers(parseInt(e.target.value, 10))}>
+                  {Array.from({ length: 7 }).map((_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {i + 1}
                     </option>
                   ))}
                 </select>
-                {serviceType && (
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {SERVICE_TYPES.find(s => s.id === serviceType)?.description}
-                  </p>
-                )}
               </div>
 
-              {/* Notes */}
-              <div className="mt-4">
-                <label className="block text-sm text-gray-700 mb-1">Special Requirements</label>
-                <Textarea rows={3} placeholder="Flight details, baby seat, languages, etc." value={notes} onChange={(e) => setNotes(e.target.value)} />
+              {/* Estimation Button */}
+              <div className="mt-6">
+                <button
+                  type="button"
+                  onClick={handleContinue}
+                  disabled={!canContinue}
+                  className={`w-full h-12 md:h-12 uppercase font-semibold tracking-wide rounded-[3px] ${canContinue ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                  style={{ backgroundColor: '#C9A659', color: '#FFFFFF' }}
+                >
+                  ESTIMATION
+                </button>
+                {!canContinue && (
+                  <p className="text-xs mt-2 text-center text-gray-400">
+                    Please fill in all required fields to get an estimation
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -554,31 +709,6 @@ export function BookingDriverPage({ onNavigate }: { onNavigate: (page: string) =
               <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-yellow-600 mt-0.5" /><span>Secure payment</span></li>
               <li className="flex items-start gap-3"><CheckCircle className="w-5 h-5 text-yellow-600 mt-0.5" /><span>Wifi, magazines, phone charger, sweets and refreshments</span></li>
             </ul>
-          </div>
-        </div>
-
-        {/* CTA Button - Positioned at bottom for visibility */}
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center">
-            <button
-              className={`
-                inline-flex items-center justify-center
-                px-8 py-4 text-lg font-bold
-                rounded-lg shadow-lg
-                transition-all duration-200
-                ${canContinue 
-                  ? 'bg-white hover:bg-gray-100 text-black border-2 border-black cursor-pointer transform hover:scale-105 hover:shadow-xl' 
-                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                }
-              `}
-              disabled={!canContinue}
-              onClick={handleContinue}
-            >
-              Continue to Vehicle Selection
-            </button>
-            {!canContinue && (
-              <p className="text-sm text-gray-600 mt-4">Please fill in all required fields above to continue</p>
-            )}
           </div>
         </div>
       </section>
@@ -602,7 +732,11 @@ export function BookingVehiclePage({ onNavigate }: { onNavigate: (page: string) 
   }, [distanceKm, itinerary?.passengers]);
 
   useEffect(() => {
-    if (!itinerary || !itinerary.pickup?.text || !itinerary.dropoff?.text) {
+    if (!itinerary || !itinerary.pickup?.text) {
+      onNavigate("booking-driver");
+      return;
+    }
+    if ((itinerary.bookingMode ?? 'transfer') === 'transfer' && !itinerary.dropoff?.text) {
       onNavigate("booking-driver");
     }
   }, [itinerary, onNavigate]);
@@ -667,10 +801,12 @@ export function BookingVehiclePage({ onNavigate }: { onNavigate: (page: string) 
         </Card>
       )}
 
+      {(itinerary?.bookingMode ?? 'transfer') === 'transfer' && (
       <div className="flex items-center justify-between mb-4">
         <div className="text-sm">Estimated distance: <span className="font-medium">{distanceKm.toFixed(1)} km</span> • Estimated duration: <span className="font-medium">{formatDuration(durationMin)}</span></div>
         <Button variant="outline" onClick={() => onNavigate("booking-driver")}>Edit itinerary</Button>
       </div>
+      )}
 
       {/* Vehicles */}
       <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
